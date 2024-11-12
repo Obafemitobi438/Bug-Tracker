@@ -70,20 +70,32 @@ router.get('/:id', authMiddleware, async (req, res) => {
     }
 });
 
-// Update a bug (PUT /api/bug/:id)
+// Update a bug and log status change history (PUT /api/bug/:id)
 router.put('/:id', authMiddleware, upload.single('image'), async (req, res) => {
     try {
         const { title, description, priority, status } = req.body;
-        const imagePath = req.file ? req.file.path : null; // Store the image path
+        const imagePath = req.file ? req.file.path : null;
 
-        const updatedBug = await Bug.findByIdAndUpdate(
-            req.params.id,
-            { title, description, priority, status, image: imagePath },
-            { new: true }
-        );
+        const bug = await Bug.findById(req.params.id);
+        if (!bug) return res.status(404).json({ message: 'Bug not found' });
 
-        if (!updatedBug) return res.status(404).json({ message: 'Bug not found' });
+        // Add status history if there's a status change
+        if (status && bug.status !== status) {
+            bug.statusHistory.push({
+                oldStatus: bug.status,
+                newStatus: status,
+                changedAt: new Date(),
+            });
+        }
 
+        // Update fields
+        bug.title = title || bug.title;
+        bug.description = description || bug.description;
+        bug.priority = priority || bug.priority;
+        bug.status = status || bug.status;
+        if (imagePath) bug.image = imagePath;
+
+        const updatedBug = await bug.save();
         res.status(200).json(updatedBug);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -99,6 +111,22 @@ router.delete('/:id', authMiddleware, async (req, res) => {
         res.status(204).send();
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+});
+
+// Add a comment to a specific bug (POST /api/bug/:id/comments)
+router.post('/:id/comments', authMiddleware, async (req, res) => {
+    const { text, author } = req.body;
+    try {
+        const bug = await Bug.findById(req.params.id);
+        if (!bug) return res.status(404).json({ message: 'Bug not found' });
+
+        bug.comments.push({ text, author, createdAt: new Date() });
+        await bug.save();
+
+        res.status(201).json({ message: 'Comment added', comments: bug.comments });
+    } catch (error) {
+        res.status(500).json({ message: 'Error adding comment', error });
     }
 });
 
